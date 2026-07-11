@@ -1,0 +1,35 @@
+{
+  "env": {
+    "node": true,
+    "es2022": true,
+    "jest": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "commonjs"
+  },
+  "rules": {
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "no-console": ["warn", { "allow": ["warn", "error", "info"] }],
+    "no-var": "error",
+    "prefer-const": "error",
+    "eqeqeq": ["error", "always"],
+    "no-eval": "error",
+    "no-implied-eval": "error",
+    "no-new-func": "error",
+    "no-return-await": "warn",
+    "require-await": "warn",
+    "no-duplicate-imports": "error",
+    "no-shadow": "warn",
+    "consistent-return": "warn",
+    "handle-callback-err": "error",
+    "node/no-unpublished-require": "off"
+  },
+  "ignorePatterns": [
+    "node_modules/",
+    "coverage/",
+    "dist/",
+    "**/*.test.js",
+    "**/__tests__/**"
+  ]
+}
