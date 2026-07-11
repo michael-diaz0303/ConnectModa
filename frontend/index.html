@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="ConnectModa - Plataforma de moda local que conecta emprendedores y talleres con compradores. Moda local, alcance global." />
+  <meta name="keywords" content="moda, plataforma, emprendedores, talleres, Colombia, diseñadores, catálogo" />
+  <meta name="author" content="ConnectModa" />
+  <meta name="theme-color" content="#C4673A" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="ConnectModa – Moda Local, Alcance Global" />
+  <meta property="og:description" content="Plataforma que conecta a emprendedores y talleres de moda con compradores." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://connectmoda.com/" />
+
+  <!-- Favicon emoji -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>👗</text></svg>" />
+
+  <title>ConnectModa – Moda Local, Alcance Global</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- NAVBAR -->
+  <nav id="navbar">
+    <div class="nav-logo">Connect<span>Moda</span></div>
+    <button class="nav-hamburger" id="hamburger" aria-label="Menú de navegación">
+      <span></span><span></span><span></span>
+    </button>
+    <ul class="nav-links" id="nav-links">
+      <li><a href="#about">Nosotros</a></li>
+      <li><a href="#how">Cómo funciona</a></li>
+      <li><a href="#quien">¿Para quién?</a></li>
+      <li><a href="#funciones">Funciones</a></li>
+      <li><a href="#contact">Contacto</a></li>
+      <li><a href="#cta" class="nav-cta">Comenzar</a></li>
+    </ul>
+  </nav>
+
+  <!-- SCROLL TO TOP (fuera del nav) -->
+  <button id="scrollTopBtn" class="scroll-top-btn" aria-label="Volver al inicio" title="Volver al inicio">↑</button>
+
+  <!-- HERO -->
+  <section class="hero" id="home">
+    <div class="hero-left">
+      <div class="hero-tag">Plataforma de moda local</div>
+      <h1 class="hero-title">
+        Tu taller,<br/>
+        el mundo<br/>
+        <em>entero.</em>
+      </h1>
+      <p class="hero-sub">
+        ConnectModa conecta a emprendedores y talleres del sector moda con empresas, marcas y compradores que buscan exactamente lo que tú ofreces — al mayor o al detal.
+      </p>
+      <div class="hero-btns">
+        <button class="btn-primary" id="openRegisterBtn">Publicar mi tienda</button>
+        <a href="#how" class="btn-secondary">Ver cómo funciona</a>
+      </div>
+    </div>
+    <div class="hero-right">
+      <div class="hero-visual">
+        <div class="hero-badge hero-badge-1">
+          <div class="badge-num" id="userCounter">+500</div>
+          <div class="badge-label">Emprendedores</div>
+        </div>
+        <div class="hero-circle">
+          <div class="hero-circle-inner">CM</div>
+        </div>
+        <div class="hero-badge hero-badge-2">
+          <div class="badge-num">Al mayor</div>
+          <div class="badge-label">y al detal</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATS -->
+  <div class="stats-bar">
+    <div class="stat-item">
+      <div class="stat-num">+500</div>
+      <div class="stat-label">Emprendedores registrados</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-num">+3.000</div>
+      <div class="stat-label">Productos publicados</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-num">+120</div>
+      <div class="stat-label">Ciudades conectadas</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-num">99%</div>
+      <div class="stat-label">Disponibilidad del sistema</div>
+    </div>
+  </div>
+
+  <!-- ABOUT -->
+  <section id="about">
+    <div class="about-graphic">
+      <div class="about-card about-card-1">
+        <div class="about-card-icon" aria-hidden="true">🧵</div>
+        <div class="about-card-title">Talleres</div>
+      </div>
+      <div class="about-card about-card-2">
+        <div class="about-card-icon" aria-hidden="true">👗</div>
+        <div class="about-card-title">Diseñadores</div>
+      </div>
+      <div class="about-card about-card-3">
+        <div class="about-card-icon" aria-hidden="true">🏪</div>
+        <div class="about-card-title">Tiendas locales</div>
+      </div>
+      <div class="about-card about-card-4">
+        <div class="about-card-icon" aria-hidden="true">🤝</div>
+        <div class="about-card-title">Compradores</div>
+      </div>
+    </div>
+    <div class="about-text">
+      <div class="section-tag">Qué es ConnectModa</div>
+      <h2 class="section-title">La vitrina digital<br/>que tu negocio <em>merece</em></h2>
+      <p class="section-desc">
+        Los mejores talleres y emprendedores de moda de Colombia ya tienen productos increíbles. Lo que les falta es visibilidad. ConnectModa es la plataforma que los pone frente a los compradores correctos — sin complicaciones y sin intermediarios.
+      </p>
+      <p class="section-desc" style="margin-top:1rem;">
+        Crea tu perfil, sube tu catálogo y empieza a recibir contactos en minutos. Sin conocimientos técnicos. Sin costo de entrada.
+      </p>
+      <button class="btn-primary" id="openRegisterBtn2">Quiero estar en ConnectModa</button>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section id="how">
+    <div class="how-header">
+      <div>
+        <div class="section-tag">Proceso</div>
+        <h2 class="section-title">Así de <em>sencillo</em></h2>
+      </div>
+      <p class="section-desc">Tres pasos y tu negocio ya está conectado con el mercado.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">01</div>
+        <div class="step-title">Crea tu perfil</div>
+        <p class="step-desc">Regístrate, configura el perfil de tu tienda con tu logo, descripción, ubicación y categorías. En menos de 15 minutos ya tienes tu espacio listo.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <div class="step-title">Publica tu catálogo</div>
+        <p class="step-desc">Sube fotos de tus productos, define precios, tallas y disponibilidad. Organiza tu oferta por categorías para que los compradores te encuentren fácil.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <div class="step-title">Recibe contactos</div>
+        <p class="step-desc">Los compradores te contactan directamente desde la plataforma o por WhatsApp. Tú decides cómo y cuándo atenderlos. Sin comisiones por venta.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOR WHOM -->
+  <section id="quien">
+    <div class="section-tag">¿Para quién es?</div>
+    <h2 class="section-title">Diseñado para <em>los dos lados</em></h2>
+    <div class="quien-grid">
+      <div class="quien-card quien-card-emprendedor">
+        <div class="quien-icon" aria-hidden="true">🧵</div>
+        <div class="quien-title">Para emprendedores y talleres</div>
+        <ul class="quien-list">
+          <li>Talleres de confección y diseño independiente</li>
+          <li>Marcas locales de ropa, accesorios y calzado</li>
+          <li>Diseñadores que producen en pequeña escala</li>
+          <li>Negocios que venden al mayor o a pedido</li>
+          <li>Emprendedores que quieren crecer sin depender del voz a voz</li>
+        </ul>
+      </div>
+      <div class="quien-card quien-card-comprador">
+        <div class="quien-icon" aria-hidden="true">🛍️</div>
+        <div class="quien-title">Para compradores</div>
+        <ul class="quien-list">
+          <li>Empresas que buscan proveedores de moda local</li>
+          <li>Tiendas y boutiques que compran al por mayor</li>
+          <li>Marcas que necesitan producción tercerizada</li>
+          <li>Personas que quieren comprar directo al diseñador</li>
+          <li>Negocios que apoyan la industria local colombiana</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section id="funciones">
+    <div class="features-header">
+      <div>
+        <div class="section-tag">Funcionalidades</div>
+        <h2 class="section-title">Todo lo que<br/>necesitas, <em>ya incluido</em></h2>
+      </div>
+      <p class="section-desc">Una plataforma completa sin costos adicionales por módulo.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature">
+        <div class="feature-icon" aria-hidden="true">🏪</div>
+        <div class="feature-title">Perfil de tienda completo</div>
+        <p class="feature-desc">Logo, descripción, categorías, ubicación y toda la información de tu negocio en un solo lugar.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon" aria-hidden="true">📸</div>
+        <div class="feature-title">Catálogo de productos</div>
+        <p class="feature-desc">Sube fotos, define precios, tallas y stock. Organiza todo por categorías para que te encuentren fácil.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon" aria-hidden="true">🔍</div>
+        <div class="feature-title">Búsqueda avanzada</div>
+        <p class="feature-desc">Los compradores filtran por categoría, precio, ubicación y tipo de venta para encontrarte rápido.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon" aria-hidden="true">💬</div>
+        <div class="feature-title">Contacto directo</div>
+        <p class="feature-desc">Recibe mensajes o conecta por WhatsApp. Sin intermediarios, sin comisiones por cada conversación.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon" aria-hidden="true">📊</div>
+        <div class="feature-title">Panel de estadísticas</div>
+        <p class="feature-desc">Visualiza visitas, clics y productos más vistos. Exporta tus reportes en PDF o Excel cuando lo necesites.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon" aria-hidden="true">⭐</div>
+        <div class="feature-title">Valoraciones y reseñas</div>
+        <p class="feature-desc">Los compradores califican su experiencia contigo. Construye reputación y genera confianza en cada venta.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- NEWSLETTER -->
+  <section id="newsletter" class="newsletter-section">
+    <div class="newsletter-content">
+      <h2>Mantente informado</h2>
+      <p>Recibe las últimas noticias, consejos de emprendimiento y actualizaciones de ConnectModa.</p>
+      <form class="newsletter-form" id="newsletterForm">
+        <input
+          type="email"
+          name="email"
+          placeholder="Tu correo electrónico"
+          class="newsletter-input"
+          required
+          aria-label="Correo electrónico para newsletter"
+        />
+        <button type="submit" class="btn-primary">Suscribirse</button>
+      </form>
+      <p class="form-message" id="newsletterMessage"></p>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section id="cta">
+    <div class="section-tag">Empieza hoy</div>
+    <h2 class="section-title">Tu talento ya es suficiente.<br/>Nosotros ponemos <em>el alcance.</em></h2>
+    <p class="section-desc">Únete a los emprendedores que ya están conectando con el mercado desde ConnectModa.</p>
+    <div class="cta-btns">
+      <button class="btn-white" id="openRegisterBtn3">Registrar mi tienda</button>
+      <button class="btn-outline-white" id="openBuyerBtn">Soy comprador</button>
+    </div>
+  </section>
+
+  <!-- CONTACT -->
+  <section id="contact" class="contact-section">
+    <div class="contact-container">
+      <div class="contact-info">
+        <h2>¿Tienes preguntas?</h2>
+        <p>Estamos aquí para ayudarte a crecer tu negocio de moda.</p>
+        <div class="contact-details">
+          <div class="contact-item">
+            <span class="contact-icon" aria-hidden="true">📧</span>
+            <a href="mailto:info@connectmoda.com">info@connectmoda.com</a>
+          </div>
+          <div class="contact-item">
+            <span class="contact-icon" aria-hidden="true">💬</span>
+            <a href="https://wa.me/573001234567" target="_blank" rel="noopener noreferrer">WhatsApp</a>
+          </div>
+          <div class="contact-item">
+            <span class="contact-icon" aria-hidden="true">📍</span>
+            <p>Bogotá, Colombia</p>
+          </div>
+        </div>
+      </div>
+      <form class="contact-form" id="contactForm">
+        <input type="text"  name="nombre"  placeholder="Tu nombre"  required maxlength="100" aria-label="Nombre" />
+        <input type="email" name="email"   placeholder="Tu correo"  required               aria-label="Correo electrónico" />
+        <textarea           name="mensaje" placeholder="Tu mensaje"  required maxlength="500" rows="5" aria-label="Mensaje"></textarea>
+        <button type="submit" class="btn-primary">Enviar mensaje</button>
+        <p class="form-message" id="contactMessage"></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-content">
+      <div class="footer-section">
+        <div class="footer-logo">Connect<span>Moda</span></div>
+        <p class="footer-desc">Conectando talento local con alcance global.</p>
+      </div>
+      <div class="footer-section">
+        <h4>Navegación</h4>
+        <ul class="footer-links">
+          <li><a href="#about">Nosotros</a></li>
+          <li><a href="#how">Cómo funciona</a></li>
+          <li><a href="#funciones">Funciones</a></li>
+          <li><a href="#contact">Contacto</a></li>
+        </ul>
+      </div>
+      <div class="footer-section">
+        <h4>Síguenos</h4>
+        <div class="social-links">
+          <a href="#" aria-label="Facebook">f</a>
+          <a href="#" aria-label="Instagram">📷</a>
+          <a href="#" aria-label="LinkedIn">in</a>
+          <a href="#" aria-label="Twitter / X">𝕏</a>
+        </div>
+      </div>
+      <div class="footer-section">
+        <h4>Legal</h4>
+        <ul class="footer-links">
+          <li><a href="#">Términos de servicio</a></li>
+          <li><a href="#">Política de privacidad</a></li>
+          <li><a href="#">Cookies</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p class="footer-copy">© 2026 ConnectModa. Todos los derechos reservados.</p>
+    </div>
+  </footer>
+
+  <!-- MODAL: Registrar tienda -->
+  <div id="registerModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="registerModalTitle">
+    <div class="modal-content">
+      <button class="modal-close" data-close="registerModal" aria-label="Cerrar">&times;</button>
+      <h2 id="registerModalTitle">Registrar mi tienda</h2>
+      <form id="registerForm">
+        <input type="text"  name="tienda"    placeholder="Nombre de la tienda" required maxlength="100" />
+        <input type="email" name="email"     placeholder="Correo electrónico"  required />
+        <input type="tel"   name="telefono"  placeholder="Teléfono"            required maxlength="20" />
+        <select name="categoria" required>
+          <option value="">Selecciona tu categoría</option>
+          <option value="ropa">Ropa</option>
+          <option value="accesorios">Accesorios</option>
+          <option value="calzado">Calzado</option>
+          <option value="confeccion">Confección a medida</option>
+          <option value="otro">Otro</option>
+        </select>
+        <button type="submit" class="btn-primary">Registrarme</button>
+        <p class="form-message" id="registerMessage"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Soy comprador -->
+  <div id="buyerModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="buyerModalTitle">
+    <div class="modal-content">
+      <button class="modal-close" data-close="buyerModal" aria-label="Cerrar">&times;</button>
+      <h2 id="buyerModalTitle">Soy comprador</h2>
+      <form id="buyerForm">
+        <input type="text"  name="empresa"  placeholder="Nombre de empresa o persona" required maxlength="100" />
+        <input type="email" name="email"    placeholder="Correo electrónico"           required />
+        <input type="url"   name="web"      placeholder="Sitio web (opcional)"         maxlength="200" />
+        <select name="interes" required>
+          <option value="">¿Qué tipo de productos buscas?</option>
+          <option value="mayoreo">Compra al mayoreo</option>
+          <option value="retail">Compra al detal</option>
+          <option value="produccion">Busco producción tercerizada</option>
+          <option value="otro">Otro</option>
+        </select>
+        <button type="submit" class="btn-primary">Comenzar</button>
+        <p class="form-message" id="buyerMessage"></p>
+      </form>
+    </div>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
