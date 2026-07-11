@@ -1,0 +1,61 @@
+# docker-compose.staging.yml — Staging environment
+
+version: '3.9'
+
+networks:
+  connectmoda-staging:
+    driver: bridge
+
+volumes:
+  mongodb-staging:
+  redis-staging:
+  uploads-staging:
+
+services:
+  app:
+    image: ghcr.io/${GITHUB_REPOSITORY}/connectmoda-backend:staging-latest
+    container_name: connectmoda-staging-app
+    restart: always
+    ports:
+      - '5000:5000'
+    env_file: .env.staging
+    volumes:
+      - uploads-staging:/app/uploads
+    depends_on:
+      - mongo
+      - redis
+    networks:
+      - connectmoda-staging
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:5000/api/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mongo:
+    image: mongo:7.0-jammy
+    container_name: connectmoda-staging-mongo
+    restart: always
+    env_file: .env.staging
+    volumes:
+      - mongodb-staging:/data/db
+    networks:
+      - connectmoda-staging
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', 'db.adminCommand("ping")']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: connectmoda-staging-redis
+    restart: always
+    volumes:
+      - redis-staging:/data
+    networks:
+      - connectmoda-staging
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      retries: 5

@@ -1,0 +1,116 @@
+# monitoring/alertmanager/alertmanager.yml
+# ConnectModa — Alertmanager: routing + notificaciones Slack y email
+
+global:
+  resolve_timeout: 5m
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+  smtp_smarthost: '${EMAIL_HOST}:${EMAIL_PORT}'
+  smtp_from: 'alertas@connectmoda.co'
+  smtp_auth_username: '${EMAIL_USER}'
+  smtp_auth_password: '${EMAIL_PASS}'
+  smtp_require_tls: true
+
+# ─── Templates personalizados ────────────────────────────────────────────────
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
+# ─── Árbol de routing ────────────────────────────────────────────────────────
+route:
+  receiver: slack-general
+  group_by: ['alertname', 'job', 'severity']
+  group_wait:      30s    # Esperar antes de enviar el primer grupo
+  group_interval:  5m     # Esperar antes de enviar nuevas alertas del mismo grupo
+  repeat_interval: 4h     # Reenviar si la alerta sigue activa
+
+  routes:
+    # ── Alertas CRÍTICAS / PAGE → canal crítico + email ───────────────────────
+    - match:
+        severity: critical
+      receiver: slack-critical
+      group_wait: 10s
+      repeat_interval: 30m
+      continue: true
+
+    - match:
+        severity: page
+      receiver: pagerduty-critical
+      group_wait: 0s
+      repeat_interval: 15m
+
+    # ── Alertas de negocio ────────────────────────────────────────────────────
+    - match:
+        team: business
+      receiver: slack-business
+      repeat_interval: 2h
+
+    # ── Alertas de infraestructura ────────────────────────────────────────────
+    - match_re:
+        alertname: (MongoDB|Redis|RabbitMQ|High.*|Disk|CPU|RAM).*
+      receiver: slack-infra
+      repeat_interval: 1h
+
+    # ── Silenciar alertas de baja prioridad en horario nocturno ───────────────
+    - match:
+        severity: warning
+      mute_time_intervals:
+        - noche-colombia
+      receiver: slack-general
+
+# ─── Intervalos de silencio ──────────────────────────────────────────────────
+mute_time_intervals:
+  - name: noche-colombia
+    time_intervals:
+      - times:
+          - start_time: '23:00'
+            end_time: '07:00'
+        location: 'America/Bogota'
+
+# ─── Receivers ───────────────────────────────────────────────────────────────
+receivers:
+  # ── General (warnings) ───────────────────────────────────────────────────
+  - name: slack-general
+    slack_configs:
+      - channel: '#connectmoda-alerts'
+        send_resolved: true
+        title: '{{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+        color: '{{ if eq .Status "firing" }}{{ if eq (index .Alerts 0).Labels.severity "critical" }}danger{{ else }}warning{{ end }}{{ else }}good{{ end }}'
+
+  # ── Crítico (errores de API, BD caída) ───────────────────────────────────
+  - name: slack-critical
+    slack_configs:
+      - channel: '#connectmoda-critical'
+        send_resolved: true
+        title: '🚨 CRÍTICO: {{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+        color: danger
+    email_configs:
+      - to: 'dev@connectmoda.co'
+        send_resolved: true
+        subject: '🚨 [ConnectModa CRITICAL] {{ .GroupLabels.alertname }}'
+        body: '{{ template "email.body" . }}'
+
+  # ── Infraestructura ──────────────────────────────────────────────────────
+  - name: slack-infra
+    slack_configs:
+      - channel: '#connectmoda-infra'
+        send_resolved: true
+        title: '⚙️ Infra: {{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+        color: warning
+
+  # ── Negocio ──────────────────────────────────────────────────────────────
+  - name: slack-business
+    slack_configs:
+      - channel: '#connectmoda-business'
+        send_resolved: true
+        title: '📊 Negocio: {{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+        color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+
+  # ── PagerDuty (alertas de máxima prioridad) ───────────────────────────────
+  - name: pagerduty-critical
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_KEY}'
+        description: '{{ template "pagerduty.description" . }}'
+        severity: critical

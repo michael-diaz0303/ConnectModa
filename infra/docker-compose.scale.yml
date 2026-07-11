@@ -1,0 +1,386 @@
+# docker-compose.scale.yml
+# ConnectModa — Fase 2: 3 instancias app + MongoDB Replica Set + Redis Cluster + RabbitMQ
+# Uso: docker-compose -f docker-compose.scale.yml up -d
+
+version: '3.9'
+
+networks:
+  connectmoda-frontend:   # LB ↔ App
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+  connectmoda-backend:    # App ↔ DB/Cache
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+  connectmoda-db:         # Solo DBs entre sí
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+
+volumes:
+  mongo-primary-data:
+  mongo-secondary1-data:
+  mongo-secondary2-data:
+  redis-master-data:
+  redis-replica1-data:
+  redis-replica2-data:
+  rabbitmq-data:
+  nginx-cache:
+  uploads-shared:
+
+# ─── LOAD BALANCER ───────────────────────────────────────────────────────────
+services:
+  nginx-lb:
+    image: nginx:1.25-alpine
+    container_name: connectmoda-lb
+    restart: always
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx-cache:/var/cache/nginx
+    depends_on:
+      - app-1
+      - app-2
+      - app-3
+    networks:
+      - connectmoda-frontend
+    healthcheck:
+      test: ['CMD', 'nginx', '-t']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── APP INSTANCES (3 réplicas) ───────────────────────────────────────────
+  app-1: &app-template
+    image: ghcr.io/${GITHUB_REPOSITORY}/connectmoda-backend:production-latest
+    container_name: connectmoda-app-1
+    restart: always
+    expose:
+      - '5000'
+    env_file: .env.production
+    environment:
+      NODE_ID: app-1
+      MONGODB_URI: mongodb://mongo-primary:27017,mongo-secondary1:27017,mongo-secondary2:27017/connectmoda?replicaSet=rs0&readPreference=secondaryPreferred
+      REDIS_URL: redis://redis-master:6379
+      RABBITMQ_URL: amqp://connectmoda:${RABBITMQ_PASS}@rabbitmq:5672/connectmoda
+    volumes:
+      - uploads-shared:/app/uploads
+    depends_on:
+      mongo-primary:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - connectmoda-frontend
+      - connectmoda-backend
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:5000/api/health']
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  app-2:
+    <<: *app-template
+    container_name: connectmoda-app-2
+    environment:
+      NODE_ID: app-2
+      MONGODB_URI: mongodb://mongo-primary:27017,mongo-secondary1:27017,mongo-secondary2:27017/connectmoda?replicaSet=rs0&readPreference=secondaryPreferred
+      REDIS_URL: redis://redis-master:6379
+      RABBITMQ_URL: amqp://connectmoda:${RABBITMQ_PASS}@rabbitmq:5672/connectmoda
+
+  app-3:
+    <<: *app-template
+    container_name: connectmoda-app-3
+    environment:
+      NODE_ID: app-3
+      MONGODB_URI: mongodb://mongo-primary:27017,mongo-secondary1:27017,mongo-secondary2:27017/connectmoda?replicaSet=rs0&readPreference=secondaryPreferred
+      REDIS_URL: redis://redis-master:6379
+      RABBITMQ_URL: amqp://connectmoda:${RABBITMQ_PASS}@rabbitmq:5672/connectmoda
+
+  # ─── WORKER (procesa cola de mensajes) ────────────────────────────────────
+  worker-1: &worker-template
+    image: ghcr.io/${GITHUB_REPOSITORY}/connectmoda-backend:production-latest
+    container_name: connectmoda-worker-1
+    restart: always
+    command: node src/worker.js
+    env_file: .env.production
+    environment:
+      NODE_ID: worker-1
+      MONGODB_URI: mongodb://mongo-primary:27017,mongo-secondary1:27017,mongo-secondary2:27017/connectmoda?replicaSet=rs0
+      REDIS_URL: redis://redis-master:6379
+      RABBITMQ_URL: amqp://connectmoda:${RABBITMQ_PASS}@rabbitmq:5672/connectmoda
+    depends_on:
+      - rabbitmq
+      - mongo-primary
+    networks:
+      - connectmoda-backend
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  worker-2:
+    <<: *worker-template
+    container_name: connectmoda-worker-2
+    environment:
+      NODE_ID: worker-2
+      MONGODB_URI: mongodb://mongo-primary:27017,mongo-secondary1:27017,mongo-secondary2:27017/connectmoda?replicaSet=rs0
+      REDIS_URL: redis://redis-master:6379
+      RABBITMQ_URL: amqp://connectmoda:${RABBITMQ_PASS}@rabbitmq:5672/connectmoda
+
+  # ─── MONGODB REPLICA SET ──────────────────────────────────────────────────
+  mongo-primary:
+    image: mongo:7.0-jammy
+    container_name: connectmoda-mongo-primary
+    restart: always
+    command: mongod --replSet rs0 --bind_ip_all --keyFile /etc/mongo-keyfile
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASS}
+    volumes:
+      - mongo-primary-data:/data/db
+      - ./docker/mongo/keyfile:/etc/mongo-keyfile:ro
+      - ./docker/mongo/init-replica.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks:
+      - connectmoda-backend
+      - connectmoda-db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', 'db.adminCommand("ping")']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+
+  mongo-secondary1:
+    image: mongo:7.0-jammy
+    container_name: connectmoda-mongo-secondary1
+    restart: always
+    command: mongod --replSet rs0 --bind_ip_all --keyFile /etc/mongo-keyfile
+    volumes:
+      - mongo-secondary1-data:/data/db
+      - ./docker/mongo/keyfile:/etc/mongo-keyfile:ro
+    networks:
+      - connectmoda-db
+    depends_on:
+      - mongo-primary
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  mongo-secondary2:
+    image: mongo:7.0-jammy
+    container_name: connectmoda-mongo-secondary2
+    restart: always
+    command: mongod --replSet rs0 --bind_ip_all --keyFile /etc/mongo-keyfile
+    volumes:
+      - mongo-secondary2-data:/data/db
+      - ./docker/mongo/keyfile:/etc/mongo-keyfile:ro
+    networks:
+      - connectmoda-db
+    depends_on:
+      - mongo-primary
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  # ─── REDIS MASTER + REPLICAS ──────────────────────────────────────────────
+  redis-master:
+    image: redis:7.2-alpine
+    container_name: connectmoda-redis-master
+    restart: always
+    command: redis-server /etc/redis/redis.conf
+    volumes:
+      - redis-master-data:/data
+      - ./docker/redis/redis-master.conf:/etc/redis/redis.conf:ro
+    networks:
+      - connectmoda-backend
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  redis-replica1:
+    image: redis:7.2-alpine
+    container_name: connectmoda-redis-replica1
+    restart: always
+    command: redis-server /etc/redis/redis.conf --replicaof redis-master 6379
+    volumes:
+      - redis-replica1-data:/data
+      - ./docker/redis/redis-replica.conf:/etc/redis/redis.conf:ro
+    depends_on:
+      - redis-master
+    networks:
+      - connectmoda-backend
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  redis-replica2:
+    image: redis:7.2-alpine
+    container_name: connectmoda-redis-replica2
+    restart: always
+    command: redis-server /etc/redis/redis.conf --replicaof redis-master 6379
+    volumes:
+      - redis-replica2-data:/data
+      - ./docker/redis/redis-replica.conf:/etc/redis/redis.conf:ro
+    depends_on:
+      - redis-master
+    networks:
+      - connectmoda-backend
+
+  redis-sentinel:
+    image: redis:7.2-alpine
+    container_name: connectmoda-redis-sentinel
+    restart: always
+    command: redis-sentinel /etc/redis/sentinel.conf
+    volumes:
+      - ./docker/redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+    depends_on:
+      - redis-master
+      - redis-replica1
+      - redis-replica2
+    networks:
+      - connectmoda-backend
+
+  # ─── RABBITMQ ────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: connectmoda-rabbitmq
+    restart: always
+    ports:
+      - '15672:15672'  # Management UI (solo acceso interno)
+    environment:
+      RABBITMQ_DEFAULT_USER: connectmoda
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+      RABBITMQ_DEFAULT_VHOST: connectmoda
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./docker/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    networks:
+      - connectmoda-backend
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  # ─── MONITORING STACK ─────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: connectmoda-prometheus
+    restart: always
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    networks:
+      - connectmoda-backend
+
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: connectmoda-grafana
+    restart: always
+    ports:
+      - '3001:3000'
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-connectmoda_grafana}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_SMTP_ENABLED: 'true'
+      GF_SMTP_HOST: ${EMAIL_HOST}
+      GF_SMTP_USER: ${EMAIL_USER}
+      GF_SMTP_PASSWORD: ${EMAIL_PASS}
+      GF_SMTP_FROM_ADDRESS: monitoring@connectmoda.co
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - connectmoda-backend
+
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    container_name: connectmoda-node-exporter
+    restart: always
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    networks:
+      - connectmoda-backend
+
+  mongodb-exporter:
+    image: percona/mongodb_exporter:0.40
+    container_name: connectmoda-mongo-exporter
+    restart: always
+    environment:
+      MONGODB_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASS}@mongo-primary:27017/admin
+    depends_on:
+      - mongo-primary
+    networks:
+      - connectmoda-backend
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.55.0
+    container_name: connectmoda-redis-exporter
+    restart: always
+    environment:
+      REDIS_ADDR: redis://redis-master:6379
+    depends_on:
+      - redis-master
+    networks:
+      - connectmoda-backend

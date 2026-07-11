@@ -1,0 +1,214 @@
+# kubernetes/apps/api/deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: connectmoda-api
+  namespace: connectmoda
+  labels:
+    app: connectmoda
+    component: api
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: connectmoda
+      component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1          # Crear 1 pod nuevo antes de eliminar uno viejo
+      maxUnavailable: 0    # Zero-downtime — nunca dejar pods abajo durante update
+  template:
+    metadata:
+      labels:
+        app: connectmoda
+        component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/api/metrics"
+        prometheus.io/port: "5000"
+    spec:
+      # Distribuir pods en diferentes nodos
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: component
+                      operator: In
+                      values: [api]
+                topologyKey: kubernetes.io/hostname
+
+      # Tiempo de gracia para shutdown limpio
+      terminationGracePeriodSeconds: 30
+
+      containers:
+        - name: api
+          image: ghcr.io/TU_ORG/connectmoda-backend:production-latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5000
+              name: http
+
+          envFrom:
+            - configMapRef:
+                name: connectmoda-config
+            - secretRef:
+                name: connectmoda-secrets
+
+          env:
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name  # Usar nombre del pod como NODE_ID
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+
+          # Liveness: reiniciar si la app está bloqueada
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 40
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness: no enviar tráfico hasta que esté listo
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 3
+
+          # Startup: dar más tiempo al arranque inicial
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 12  # 12 * 5s = 60s para arrancar
+
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/uploads
+
+          lifecycle:
+            preStop:
+              exec:
+                # Dar tiempo al LB para redirigir antes del shutdown
+                command: ["/bin/sh", "-c", "sleep 5"]
+
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: connectmoda-uploads-pvc
+
+      imagePullSecrets:
+        - name: ghcr-credentials
+
+---
+# kubernetes/apps/api/service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: connectmoda-api-svc
+  namespace: connectmoda
+  labels:
+    app: connectmoda
+    component: api
+spec:
+  selector:
+    app: connectmoda
+    component: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5000
+      protocol: TCP
+  type: ClusterIP
+
+---
+# kubernetes/apps/api/hpa.yml
+# Horizontal Pod Autoscaler — escala entre 3 y 10 réplicas
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: connectmoda-api-hpa
+  namespace: connectmoda
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: connectmoda-api
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    # Escalar por CPU
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70   # Escalar si CPU promedio > 70%
+
+    # Escalar por RAM
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+    # Escalar por requests/seg (requiere metrics-server + prometheus-adapter)
+    - type: Pods
+      pods:
+        metric:
+          name: http_requests_per_second
+        target:
+          type: AverageValue
+          averageValue: "100"      # Escalar si > 100 req/s por pod
+
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60    # Esperar 1 min antes de escalar arriba
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60             # Máximo 2 pods nuevos por minuto
+    scaleDown:
+      stabilizationWindowSeconds: 300   # Esperar 5 min antes de escalar abajo
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120            # Máximo 1 pod menos cada 2 minutos
+
+---
+# kubernetes/apps/api/pdb.yml
+# Pod Disruption Budget — garantiza mínimo 2 pods durante mantenimiento
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: connectmoda-api-pdb
+  namespace: connectmoda
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: connectmoda
+      component: api

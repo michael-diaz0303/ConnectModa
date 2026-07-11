@@ -1,0 +1,106 @@
+# kubernetes/apps/worker/deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: connectmoda-worker
+  namespace: connectmoda
+  labels:
+    app: connectmoda
+    component: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: connectmoda
+      component: worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: connectmoda
+        component: worker
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: component
+                      operator: In
+                      values: [worker]
+                topologyKey: kubernetes.io/hostname
+
+      terminationGracePeriodSeconds: 60   # Más tiempo para terminar mensajes en curso
+
+      containers:
+        - name: worker
+          image: ghcr.io/TU_ORG/connectmoda-backend:production-latest
+          command: ["node", "src/worker.js"]
+          imagePullPolicy: Always
+
+          envFrom:
+            - configMapRef:
+                name: connectmoda-config
+            - secretRef:
+                name: connectmoda-secrets
+
+          env:
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+          livenessProbe:
+            exec:
+              command: ["node", "-e", "require('./src/worker-health.js')"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+
+      imagePullSecrets:
+        - name: ghcr-credentials
+
+---
+# HPA para workers — escalar según profundidad de la cola
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: connectmoda-worker-hpa
+  namespace: connectmoda
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: connectmoda-worker
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: rabbitmq_queue_messages
+          selector:
+            matchLabels:
+              queue: orders.created
+        target:
+          type: AverageValue
+          averageValue: "50"    # 1 worker por cada 50 mensajes en cola
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 600   # 10 min antes de reducir workers

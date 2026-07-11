@@ -1,0 +1,62 @@
+# monitoring/prometheus/prometheus.yml
+# ConnectModa — Configuración de Prometheus
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: connectmoda
+    environment: production
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - /etc/prometheus/rules/api.rules.yml
+  - /etc/prometheus/rules/infra.rules.yml
+  - /etc/prometheus/rules/business.rules.yml
+
+scrape_configs:
+  # ── App instances ───────────────────────────────────────────────────────────
+  - job_name: connectmoda-api
+    metrics_path: /api/metrics
+    static_configs:
+      - targets:
+          - app-1:5000
+          - app-2:5000
+          - app-3:5000
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # ── Nginx ───────────────────────────────────────────────────────────────────
+  - job_name: nginx
+    static_configs:
+      - targets: ['nginx-lb:9113']
+
+  # ── Node Exporter (métricas de sistema) ─────────────────────────────────────
+  - job_name: node-exporter
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # ── MongoDB ─────────────────────────────────────────────────────────────────
+  - job_name: mongodb
+    static_configs:
+      - targets: ['mongodb-exporter:9216']
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  - job_name: redis
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  # ── RabbitMQ ────────────────────────────────────────────────────────────────
+  - job_name: rabbitmq
+    static_configs:
+      - targets: ['rabbitmq:15692']
+
+  # ── Prometheus itself ────────────────────────────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

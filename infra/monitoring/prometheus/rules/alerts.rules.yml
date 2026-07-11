@@ -1,0 +1,196 @@
+# monitoring/prometheus/rules/api.rules.yml
+# Alertas de la API de ConnectModa
+
+groups:
+  - name: connectmoda.api
+    interval: 30s
+    rules:
+
+      # ── SLO: Disponibilidad ≥ 99.5% ────────────────────────────────────────
+      - alert: APIHighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{job="connectmoda-api", status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="connectmoda-api"}[5m]))
+          ) > 0.005
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "ConnectModa API — tasa de errores alta ({{ $value | humanizePercentage }})"
+          description: "La tasa de errores 5xx supera el 0.5% durante los últimos 2 minutos."
+          runbook: "https://github.com/tu-repo/connectmoda/wiki/runbooks/high-error-rate"
+
+      # ── SLO: Latencia p95 < 500ms ───────────────────────────────────────────
+      - alert: APIHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{job="connectmoda-api"}[5m])) by (le, route)
+          ) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "ConnectModa API — latencia p95 alta en {{ $labels.route }}"
+          description: "La latencia p95 supera 500ms en la ruta {{ $labels.route }}."
+
+      # ── Instancia de API caída ──────────────────────────────────────────────
+      - alert: APIInstanceDown
+        expr: up{job="connectmoda-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Instancia de API caída: {{ $labels.instance }}"
+          description: "La instancia {{ $labels.instance }} no responde desde hace 1 minuto."
+
+      # ── Todas las instancias caídas ─────────────────────────────────────────
+      - alert: AllAPIInstancesDown
+        expr: sum(up{job="connectmoda-api"}) == 0
+        for: 30s
+        labels:
+          severity: page
+        annotations:
+          summary: "🚨 CRÍTICO: Todas las instancias de ConnectModa API están caídas"
+          description: "No hay ninguna instancia de la API disponible."
+
+      # ── Rate de requests muy bajo (posible problema) ────────────────────────
+      - alert: APILowRequestRate
+        expr: sum(rate(http_requests_total{job="connectmoda-api"}[5m])) < 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ConnectModa — tráfico anormalmente bajo"
+          description: "Menos de 0.1 req/s en los últimos 10 minutos. Posible problema de red o DNS."
+
+---
+# monitoring/prometheus/rules/infra.rules.yml
+groups:
+  - name: connectmoda.infrastructure
+    rules:
+
+      # ── MongoDB primary caído ────────────────────────────────────────────────
+      - alert: MongoDBPrimaryDown
+        expr: mongodb_up{job="mongodb"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MongoDB primary caído"
+          description: "El nodo primary de MongoDB no responde."
+
+      # ── Replica set sin quórum ───────────────────────────────────────────────
+      - alert: MongoDBReplicaSetNoQuorum
+        expr: mongodb_replset_member_health < 2
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MongoDB Replica Set sin quórum — riesgo de pérdida de datos"
+          description: "Menos de 2 nodos saludables en el replica set."
+
+      # ── Redis master caído ───────────────────────────────────────────────────
+      - alert: RedisMasterDown
+        expr: redis_up{instance="redis-master:6379"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis Master caído"
+          description: "El Redis master no responde. El sentinel debería promover una replica."
+
+      # ── Memoria Redis > 80% ─────────────────────────────────────────────────
+      - alert: RedisHighMemoryUsage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis — uso de memoria alto ({{ $value | humanizePercentage }})"
+          description: "Redis está usando más del 80% de su memoria máxima configurada."
+
+      # ── RabbitMQ cola acumulando mensajes ────────────────────────────────────
+      - alert: RabbitMQQueueBacklog
+        expr: rabbitmq_queue_messages{queue=~"orders.*|payments.*"} > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cola RabbitMQ acumulando mensajes: {{ $labels.queue }}"
+          description: "La cola {{ $labels.queue }} tiene {{ $value }} mensajes sin procesar."
+
+      # ── CPU del servidor > 85% ──────────────────────────────────────────────
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU alta en {{ $labels.instance }}: {{ $value | humanize }}%"
+
+      # ── Disco > 80% ─────────────────────────────────────────────────────────
+      - alert: HighDiskUsage
+        expr: |
+          (node_filesystem_size_bytes{fstype!~"tmpfs|overlay"} - node_filesystem_free_bytes) /
+          node_filesystem_size_bytes * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disco casi lleno en {{ $labels.instance }}: {{ $value | humanize }}%"
+
+      # ── RAM > 90% ────────────────────────────────────────────────────────────
+      - alert: HighMemoryUsage
+        expr: |
+          (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) /
+          node_memory_MemTotal_bytes * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "RAM crítica en {{ $labels.instance }}: {{ $value | humanize }}%"
+
+---
+# monitoring/prometheus/rules/business.rules.yml
+groups:
+  - name: connectmoda.business
+    interval: 60s
+    rules:
+
+      # ── Tasa de órdenes caída ────────────────────────────────────────────────
+      - alert: OrderRateDropped
+        expr: |
+          rate(connectmoda_orders_created_total[30m]) <
+          rate(connectmoda_orders_created_total[30m] offset 1d) * 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tasa de nuevas órdenes cayó más del 50% vs ayer"
+          description: "Podría indicar un problema en el flujo de compra o pago."
+
+      # ── Tasa de pagos fallidos alta ──────────────────────────────────────────
+      - alert: HighPaymentFailureRate
+        expr: |
+          rate(connectmoda_payments_failed_total[10m]) /
+          rate(connectmoda_payments_total[10m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Tasa de pagos fallidos alta ({{ $value | humanizePercentage }})"
+          description: "Más del 10% de los pagos están fallando. Verificar Stripe."
+
+      # ── Dead-letter queue creciendo ──────────────────────────────────────────
+      - alert: DeadLetterQueueGrowing
+        expr: rabbitmq_queue_messages{queue="dead-letter-queue"} > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dead-letter queue con {{ $value }} mensajes sin procesar"
+          description: "Mensajes acumulados en DLQ. Revisar logs del worker."

@@ -1,0 +1,190 @@
+// docker/rabbitmq/definitions.json
+// ConnectModa — Definición de colas, exchanges y bindings en RabbitMQ
+
+{
+  "vhosts": [
+    { "name": "connectmoda" }
+  ],
+
+  "users": [
+    {
+      "name": "connectmoda",
+      "password_hash": "CAMBIA_ESTO_EN_PRODUCCION",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": "management"
+    }
+  ],
+
+  "permissions": [
+    {
+      "user": "connectmoda",
+      "vhost": "connectmoda",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+
+  "exchanges": [
+    {
+      "name": "conectmoda.orders",
+      "vhost": "connectmoda",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "connectmoda.notifications",
+      "vhost": "connectmoda",
+      "type": "fanout",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "connectmoda.payments",
+      "vhost": "connectmoda",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "connectmoda.dlx",
+      "vhost": "connectmoda",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+
+  "queues": [
+    {
+      "name": "orders.created",
+      "vhost": "connectmoda",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "connectmoda.dlx",
+        "x-dead-letter-routing-key": "orders.created.dead",
+        "x-message-ttl": 86400000,
+        "x-max-length": 50000
+      }
+    },
+    {
+      "name": "orders.paid",
+      "vhost": "connectmoda",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "connectmoda.dlx",
+        "x-dead-letter-routing-key": "orders.paid.dead",
+        "x-message-ttl": 86400000
+      }
+    },
+    {
+      "name": "orders.shipped",
+      "vhost": "connectmoda",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "connectmoda.dlx",
+        "x-message-ttl": 86400000
+      }
+    },
+    {
+      "name": "notifications.email",
+      "vhost": "connectmoda",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "connectmoda.dlx",
+        "x-message-ttl": 3600000,
+        "x-max-length": 10000
+      }
+    },
+    {
+      "name": "notifications.push",
+      "vhost": "connectmoda",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 1800000,
+        "x-max-length": 10000
+      }
+    },
+    {
+      "name": "payments.webhook",
+      "vhost": "connectmoda",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "connectmoda.dlx",
+        "x-message-ttl": 86400000
+      }
+    },
+    {
+      "name": "dead-letter-queue",
+      "vhost": "connectmoda",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 604800000
+      }
+    }
+  ],
+
+  "bindings": [
+    {
+      "source": "conectmoda.orders",
+      "vhost": "connectmoda",
+      "destination": "orders.created",
+      "destination_type": "queue",
+      "routing_key": "order.created"
+    },
+    {
+      "source": "conectmoda.orders",
+      "vhost": "connectmoda",
+      "destination": "orders.paid",
+      "destination_type": "queue",
+      "routing_key": "order.paid"
+    },
+    {
+      "source": "conectmoda.orders",
+      "vhost": "connectmoda",
+      "destination": "orders.shipped",
+      "destination_type": "queue",
+      "routing_key": "order.shipped"
+    },
+    {
+      "source": "connectmoda.notifications",
+      "vhost": "connectmoda",
+      "destination": "notifications.email",
+      "destination_type": "queue",
+      "routing_key": ""
+    },
+    {
+      "source": "connectmoda.notifications",
+      "vhost": "connectmoda",
+      "destination": "notifications.push",
+      "destination_type": "queue",
+      "routing_key": ""
+    },
+    {
+      "source": "connectmoda.payments",
+      "vhost": "connectmoda",
+      "destination": "payments.webhook",
+      "destination_type": "queue",
+      "routing_key": "stripe.webhook"
+    },
+    {
+      "source": "connectmoda.dlx",
+      "vhost": "connectmoda",
+      "destination": "dead-letter-queue",
+      "destination_type": "queue",
+      "routing_key": "#"
+    }
+  ]
+}
