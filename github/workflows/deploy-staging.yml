@@ -1,0 +1,237 @@
+# .github/workflows/deploy-staging.yml
+# Deploy automático a staging cuando se hace push a develop
+
+name: 🚀 Deploy Staging
+
+on:
+  push:
+    branches: [develop]
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false   # No cancelar deploys en curso
+
+env:
+  NODE_VERSION: '20.x'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/connectmoda-backend
+  ENVIRONMENT: staging
+
+jobs:
+  # ─── TESTS PREVIOS AL DEPLOY ─────────────────────────────────────────────────
+  pre-deploy-tests:
+    name: ✅ Pre-deploy Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install & Test
+        run: |
+          npm ci
+          npm run lint
+          npm run test:coverage
+        env:
+          NODE_ENV: test
+          JWT_SECRET: ${{ secrets.JWT_SECRET_TEST || 'test_secret_ci' }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_KEY || 'sk_test_fake' }}
+
+  # ─── BUILD DOCKER IMAGE ──────────────────────────────────────────────────────
+  build:
+    name: 🐳 Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: pre-deploy-tests
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build-push.outputs.digest }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=staging-
+            type=raw,value=staging-latest
+
+      - name: Build and push Docker image
+        id: build-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NODE_ENV=staging
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            GIT_SHA=${{ github.sha }}
+
+      - name: Image security scan (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-latest
+          format: table
+          exit-code: 0
+          severity: CRITICAL,HIGH
+        continue-on-error: true
+
+  # ─── DEPLOY A STAGING ────────────────────────────────────────────────────────
+  deploy-staging:
+    name: 🌿 Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Opción A: Deploy a Railway
+      - name: Deploy to Railway (Staging)
+        uses: bervProject/railway-deploy@main
+        if: vars.DEPLOY_TARGET == 'railway'
+        with:
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
+          service: connectmoda-staging
+        continue-on-error: true
+
+      # Opción B: Deploy a Render
+      - name: Deploy to Render (Staging)
+        if: vars.DEPLOY_TARGET == 'render'
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"clearCache": false}' \
+            "https://api.render.com/v1/services/${{ secrets.RENDER_STAGING_SERVICE_ID }}/deploys"
+        continue-on-error: true
+
+      # Opción C: Deploy a servidor propio vía SSH
+      - name: Deploy to VPS via SSH
+        if: vars.DEPLOY_TARGET == 'vps'
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            cd /opt/connectmoda
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-latest
+            docker-compose -f docker-compose.staging.yml up -d --no-deps app
+            docker image prune -f
+
+      - name: Wait for deployment (30s)
+        run: sleep 30
+
+  # ─── SMOKE TESTS EN STAGING ──────────────────────────────────────────────────
+  smoke-tests-staging:
+    name: 💨 Smoke Tests Staging
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Health check staging
+        run: |
+          STAGING_URL="${{ vars.STAGING_URL || 'https://connectmoda-staging.up.railway.app' }}"
+          echo "Verificando $STAGING_URL/api/health ..."
+
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$STAGING_URL/api/health" || echo "000")
+            echo "Intento $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Health check OK"
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "❌ Health check FALLÓ después de 5 intentos"
+          exit 1
+
+      - name: Smoke test - Auth endpoint
+        run: |
+          URL="${{ vars.STAGING_URL || 'https://connectmoda-staging.up.railway.app' }}"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"email":"smoke@test.com","password":"wrong"}' \
+            "$URL/api/auth/login")
+          # 401 es correcto (credenciales inválidas pero endpoint responde)
+          if [ "$STATUS" = "401" ] || [ "$STATUS" = "400" ]; then
+            echo "✅ Auth endpoint responde correctamente (HTTP $STATUS)"
+          else
+            echo "❌ Auth endpoint inesperado (HTTP $STATUS)"
+            exit 1
+          fi
+
+      - name: Smoke test - Products endpoint
+        run: |
+          URL="${{ vars.STAGING_URL || 'https://connectmoda-staging.up.railway.app' }}"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/api/productos")
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Products endpoint OK"
+          else
+            echo "❌ Products endpoint falló (HTTP $STATUS)"
+            exit 1
+          fi
+
+  # ─── NOTIFICACIÓN ────────────────────────────────────────────────────────────
+  notify-staging:
+    name: 🔔 Notify Staging Deploy
+    runs-on: ubuntu-latest
+    needs: smoke-tests-staging
+    if: always()
+
+    steps:
+      - name: Notify success
+        if: needs.smoke-tests-staging.result == 'success'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: |
+            ✅ *ConnectModa Staging deployed*
+            URL: ${{ vars.STAGING_URL }}
+            Commit: `${{ github.sha }}`
+            By: ${{ github.actor }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true
+
+      - name: Notify failure
+        if: needs.smoke-tests-staging.result == 'failure'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          text: |
+            ❌ *ConnectModa Staging FALLÓ*
+            Commit: `${{ github.sha }}`
+            By: ${{ github.actor }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true

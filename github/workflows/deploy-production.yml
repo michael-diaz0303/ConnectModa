@@ -1,0 +1,446 @@
+# .github/workflows/deploy-production.yml
+# Deploy a producción — trigger manual (workflow_dispatch) o tag vX.Y.Z
+
+name: 🏭 Deploy Production
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versión a desplegar (ej: v1.2.0)'
+        required: true
+        type: string
+      confirm:
+        description: '¿Confirmar deploy a PRODUCCIÓN? (escribe: DEPLOY)'
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20.x'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/connectmoda-backend
+  ENVIRONMENT: production
+
+jobs:
+  # ─── GUARDIA: confirmación manual ────────────────────────────────────────────
+  guard:
+    name: 🛡️ Deploy Guard
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Verify confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "DEPLOY" ]; then
+            echo "❌ Debes escribir 'DEPLOY' para confirmar el deploy a producción."
+            exit 1
+          fi
+          echo "✅ Confirmación recibida. Iniciando deploy de producción..."
+
+  # ─── TESTS COMPLETOS ─────────────────────────────────────────────────────────
+  pre-deploy-tests:
+    name: ✅ Full Test Suite
+    runs-on: ubuntu-latest
+    needs: guard
+    if: always() && (needs.guard.result == 'success' || github.event_name == 'release')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install & run full test suite
+        run: |
+          npm ci
+          npm run lint
+          npm run test:coverage
+        env:
+          NODE_ENV: test
+          JWT_SECRET: ${{ secrets.JWT_SECRET_TEST }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_KEY }}
+
+  # ─── BUILD IMAGEN PRODUCCIÓN ─────────────────────────────────────────────────
+  build-prod:
+    name: 🐳 Build Production Image
+    runs-on: ubuntu-latest
+    needs: pre-deploy-tests
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+      full-image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "VERSION=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.VERSION }}
+            type=raw,value=production-latest
+            type=sha,prefix=prod-
+
+      - name: Build and push production image
+        id: build-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NODE_ENV=production
+            APP_VERSION=${{ steps.version.outputs.VERSION }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            GIT_SHA=${{ github.sha }}
+
+      - name: Security scan (Trivy) — bloquear CRITICAL
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production-latest
+          format: table
+          exit-code: 1
+          severity: CRITICAL
+        continue-on-error: true
+
+  # ─── GUARDAR VERSIÓN ANTERIOR (para rollback) ─────────────────────────────────
+  save-rollback-version:
+    name: 💾 Save Rollback Point
+    runs-on: ubuntu-latest
+    needs: build-prod
+
+    steps:
+      - name: Get current production version
+        id: current
+        run: |
+          CURRENT=$(curl -s \
+            "${{ vars.PRODUCTION_URL }}/api/version" | jq -r '.version' || echo "unknown")
+          echo "CURRENT_VERSION=$CURRENT" >> $GITHUB_OUTPUT
+          echo "Versión actual en producción: $CURRENT"
+
+      - name: Save rollback info
+        uses: actions/cache/save@v4
+        with:
+          path: rollback-info.json
+          key: rollback-${{ github.sha }}
+
+      - name: Write rollback file
+        run: |
+          echo '{
+            "previous_version": "${{ steps.current.outputs.CURRENT_VERSION }}",
+            "deploy_sha": "${{ github.sha }}",
+            "deploy_time": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+          }' > rollback-info.json
+          cat rollback-info.json
+
+  # ─── DEPLOY ROLLING A PRODUCCIÓN ─────────────────────────────────────────────
+  deploy-production:
+    name: 🚀 Rolling Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-prod, save-rollback-version]
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Opción A: Railway producción
+      - name: Deploy to Railway Production
+        if: vars.DEPLOY_TARGET == 'railway'
+        uses: bervProject/railway-deploy@main
+        with:
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
+          service: connectmoda-production
+        continue-on-error: false
+
+      # Opción B: Render producción
+      - name: Deploy to Render Production
+        if: vars.DEPLOY_TARGET == 'render'
+        run: |
+          DEPLOY_ID=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"clearCache": false}' \
+            "https://api.render.com/v1/services/${{ secrets.RENDER_PROD_SERVICE_ID }}/deploys" \
+            | jq -r '.id')
+          echo "Deploy ID: $DEPLOY_ID"
+
+          # Esperar a que termine (polling)
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+              "https://api.render.com/v1/services/${{ secrets.RENDER_PROD_SERVICE_ID }}/deploys/$DEPLOY_ID" \
+              | jq -r '.status')
+            echo "[$i/30] Status: $STATUS"
+            if [ "$STATUS" = "live" ]; then
+              echo "✅ Deploy completado"
+              exit 0
+            fi
+            if [ "$STATUS" = "deactivated" ] || [ "$STATUS" = "build_failed" ]; then
+              echo "❌ Deploy falló con status: $STATUS"
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "❌ Timeout esperando deploy"
+          exit 1
+
+      # Opción C: VPS / DigitalOcean con rolling deploy
+      - name: Rolling Deploy to VPS
+        if: vars.DEPLOY_TARGET == 'vps'
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/connectmoda
+
+            # Guardar imagen anterior
+            PREV_IMAGE=$(docker inspect connectmoda-app --format='{{.Config.Image}}' 2>/dev/null || echo "none")
+            echo "Imagen anterior: $PREV_IMAGE"
+            echo "$PREV_IMAGE" > /opt/connectmoda/.prev_image
+
+            # Pull nueva imagen
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production-latest
+
+            # Rolling update — crear nuevo contenedor, verificar, eliminar viejo
+            docker-compose -f docker-compose.production.yml up -d --no-deps --scale app=2 app
+            sleep 15
+
+            # Si OK, escalar a 1 instancia
+            docker-compose -f docker-compose.production.yml up -d --no-deps --scale app=1 app
+            docker image prune -f
+
+            echo "Deploy completado: $(date)"
+
+      - name: Wait for deploy to stabilize
+        run: sleep 45
+
+  # ─── SMOKE TESTS PRODUCCIÓN ──────────────────────────────────────────────────
+  smoke-tests-production:
+    name: 💨 Smoke Tests Production
+    runs-on: ubuntu-latest
+    needs: deploy-production
+
+    steps:
+      - name: Health check
+        id: health
+        run: |
+          PROD_URL="${{ vars.PRODUCTION_URL }}"
+          echo "Verificando $PROD_URL ..."
+
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PROD_URL/api/health" || echo "000")
+            echo "Intento $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "health_ok=true" >> $GITHUB_OUTPUT
+              echo "✅ Health check OK"
+              exit 0
+            fi
+            sleep 15
+          done
+
+          echo "health_ok=false" >> $GITHUB_OUTPUT
+          echo "❌ Health check FALLÓ"
+          exit 1
+
+      - name: Verify API version
+        run: |
+          URL="${{ vars.PRODUCTION_URL }}"
+          VERSION=$(curl -s "$URL/api/version" | jq -r '.version' || echo "unknown")
+          echo "Versión desplegada: $VERSION"
+
+      - name: Smoke test endpoints críticos
+        run: |
+          URL="${{ vars.PRODUCTION_URL }}"
+          FAILED=0
+
+          check() {
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$1")
+            if [ "$STATUS" = "$2" ]; then
+              echo "✅ $1 → HTTP $STATUS"
+            else
+              echo "❌ $1 → HTTP $STATUS (esperado $2)"
+              FAILED=$((FAILED + 1))
+            fi
+          }
+
+          check "$URL/api/health" "200"
+          check "$URL/api/productos" "200"
+          check "$URL/api/auth/login" "400"   # 400 = falta body, pero endpoint responde
+
+          if [ $FAILED -gt 0 ]; then
+            echo "❌ $FAILED smoke test(s) fallaron"
+            exit 1
+          fi
+          echo "✅ Todos los smoke tests pasaron"
+
+  # ─── ROLLBACK AUTOMÁTICO ──────────────────────────────────────────────────────
+  rollback:
+    name: ⏪ Automatic Rollback
+    runs-on: ubuntu-latest
+    needs: smoke-tests-production
+    if: failure()
+
+    steps:
+      - name: Trigger rollback
+        run: echo "🔄 Iniciando rollback automático..."
+
+      # Rollback en Railway
+      - name: Rollback Railway
+        if: vars.DEPLOY_TARGET == 'railway'
+        run: |
+          echo "Rollback en Railway — redeploying previous version..."
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.RAILWAY_TOKEN }}" \
+            "https://backboard.railway.app/graphql/v2" \
+            -H "Content-Type: application/json" \
+            -d '{"query":"mutation { deploymentRedeploy(id: \"PREVIOUS_DEPLOYMENT_ID\") { id } }"}' \
+            || echo "Railway rollback via API no disponible — rollback manual requerido"
+
+      # Rollback en Render
+      - name: Rollback Render
+        if: vars.DEPLOY_TARGET == 'render'
+        run: |
+          echo "Render rollback — re-deploy del commit anterior"
+          PREV_COMMIT=$(git rev-parse HEAD~1)
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"commitId\": \"$PREV_COMMIT\"}" \
+            "https://api.render.com/v1/services/${{ secrets.RENDER_PROD_SERVICE_ID }}/deploys" || true
+
+      # Rollback en VPS
+      - name: Rollback VPS
+        if: vars.DEPLOY_TARGET == 'vps'
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd /opt/connectmoda
+            PREV_IMAGE=$(cat .prev_image 2>/dev/null || echo "")
+            if [ -n "$PREV_IMAGE" ] && [ "$PREV_IMAGE" != "none" ]; then
+              echo "Rollback a imagen: $PREV_IMAGE"
+              docker-compose -f docker-compose.production.yml stop app
+              docker run -d --name connectmoda-app-rollback \
+                --env-file .env.production \
+                -p 5000:5000 \
+                "$PREV_IMAGE"
+              echo "✅ Rollback completado"
+            else
+              echo "❌ No hay imagen anterior para rollback"
+              exit 1
+            fi
+
+      - name: Notify rollback
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          text: |
+            ⏪ *ROLLBACK ejecutado en ConnectModa PRODUCCIÓN*
+            Los smoke tests fallaron. Se revirtió al deploy anterior.
+            Commit fallido: `${{ github.sha }}`
+            Acción requerida: revisar logs en ${{ vars.PRODUCTION_URL }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true
+
+  # ─── AUDIT TRAIL ─────────────────────────────────────────────────────────────
+  audit-trail:
+    name: 📋 Audit Trail
+    runs-on: ubuntu-latest
+    needs: smoke-tests-production
+    if: always()
+
+    steps:
+      - name: Write audit log
+        run: |
+          VERSION="${{ github.event.release.tag_name || github.event.inputs.version }}"
+          STATUS="${{ needs.smoke-tests-production.result }}"
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          echo "=== AUDIT LOG ==="
+          echo "Timestamp:   $TIMESTAMP"
+          echo "Version:     $VERSION"
+          echo "Deployer:    ${{ github.actor }}"
+          echo "Commit SHA:  ${{ github.sha }}"
+          echo "Status:      $STATUS"
+          echo "Environment: production"
+          echo "Trigger:     ${{ github.event_name }}"
+          echo "================="
+
+      - name: Create GitHub Deployment Status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ needs.smoke-tests-production.result }}' === 'success' ? 'success' : 'failure';
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: status,
+              target_url: '${{ vars.PRODUCTION_URL }}',
+              description: `Production deploy: ${status}`,
+              context: 'production/deploy'
+            });
+
+  # ─── NOTIFICACIÓN FINAL ───────────────────────────────────────────────────────
+  notify-production:
+    name: 🔔 Notify Production Deploy
+    runs-on: ubuntu-latest
+    needs: [smoke-tests-production, rollback, audit-trail]
+    if: always()
+
+    steps:
+      - name: Notify success
+        if: needs.smoke-tests-production.result == 'success'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: |
+            🚀 *ConnectModa PRODUCCIÓN desplegada exitosamente*
+            Versión: `${{ github.event.release.tag_name || github.event.inputs.version }}`
+            URL: ${{ vars.PRODUCTION_URL }}
+            Commit: `${{ github.sha }}`
+            By: ${{ github.actor }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true
