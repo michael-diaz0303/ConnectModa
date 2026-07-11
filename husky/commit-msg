@@ -1,0 +1,40 @@
+#!/bin/sh
+# .husky/commit-msg
+# Valida el formato del mensaje de commit (Conventional Commits)
+# Formato: tipo(scope): descripción
+# Ejemplo: feat(auth): agregar login con JWT
+
+. "$(dirname -- "$0")/_/husky.sh"
+
+COMMIT_MSG=$(cat "$1")
+PATTERN="^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .{1,100}$"
+
+if ! echo "$COMMIT_MSG" | grep -qE "$PATTERN"; then
+  echo ""
+  echo "❌ Mensaje de commit inválido: '$COMMIT_MSG'"
+  echo ""
+  echo "   Formato requerido: tipo(scope): descripción"
+  echo ""
+  echo "   Tipos válidos:"
+  echo "     feat     → nueva funcionalidad"
+  echo "     fix      → corrección de bug"
+  echo "     docs     → cambios en documentación"
+  echo "     style    → formato, espacios (sin cambios lógicos)"
+  echo "     refactor → refactorización de código"
+  echo "     test     → agregar o corregir tests"
+  echo "     chore    → tareas de mantenimiento"
+  echo "     perf     → mejoras de rendimiento"
+  echo "     ci       → cambios en CI/CD"
+  echo "     build    → cambios en el sistema de build"
+  echo "     revert   → revertir un commit anterior"
+  echo ""
+  echo "   Ejemplos válidos:"
+  echo "     feat(auth): agregar registro de usuarios"
+  echo "     fix(orden): corregir cálculo de total con descuento"
+  echo "     test(productos): agregar tests de integración"
+  echo "     ci: agregar workflow de deploy a staging"
+  echo ""
+  exit 1
+fi
+
+echo "✅ Mensaje de commit válido"

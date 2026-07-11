@@ -1,0 +1,21 @@
+#!/bin/sh
+# .husky/pre-push
+# Corre unit tests antes de cada push
+
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "🧪 ConnectModa — Pre-push: corriendo unit tests..."
+
+npm run test:unit
+
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+  echo ""
+  echo "❌ Los unit tests fallaron. Push cancelado."
+  echo "   Corrige los tests antes de hacer push."
+  echo "   Para saltarte esta verificación: git push --no-verify"
+  exit 1
+fi
+
+echo "✅ Tests pasaron. Haciendo push..."

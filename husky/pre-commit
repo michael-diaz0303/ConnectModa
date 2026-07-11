@@ -1,0 +1,21 @@
+#!/bin/sh
+# .husky/pre-commit
+# Corre lint-staged antes de cada commit
+
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "🔍 ConnectModa — Pre-commit checks..."
+
+# Lint + format en archivos staged
+npx lint-staged
+
+# Verificar que no haya console.log en src/ (excepto warn/error/info)
+if git diff --cached --name-only | grep -q "\.js$"; then
+  if git diff --cached | grep "^+" | grep -v "^+++" | grep -E "console\.log\(" > /dev/null 2>&1; then
+    echo "⚠️  WARNING: Encontrado console.log() en archivos staged."
+    echo "   Usa console.info(), console.warn() o console.error() en su lugar."
+    echo "   Para forzar el commit de todas formas: git commit --no-verify"
+  fi
+fi
+
+echo "✅ Pre-commit checks pasaron"
